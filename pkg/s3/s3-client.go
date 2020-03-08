@@ -13,7 +13,7 @@ import (
 
 const (
 	metadataName = ".metadata.json"
-	fsPrefix     = "csi-fs"
+	fsPrefix     = ""
 )
 
 type s3Client struct {

@@ -53,46 +53,6 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 
 	capacityBytes := int64(req.GetCapacityRange().GetRequiredBytes())
-	params := req.GetParameters()
-	mounter := params[mounterTypeKey]
-
-	glog.V(4).Infof("Got a request to create volume %s", volumeID)
-
-	s3, err := newS3ClientFromSecrets(req.GetSecrets())
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize S3 client: %s", err)
-	}
-	exists, err := s3.bucketExists(volumeID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check if bucket %s exists: %v", volumeID, err)
-	}
-	if exists {
-		var b *bucket
-		b, err = s3.getBucket(volumeID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get bucket metadata of bucket %s: %v", volumeID, err)
-		}
-		// Check if volume capacity requested is bigger than the already existing capacity
-		if capacityBytes > b.CapacityBytes {
-			return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("Volume with the same name: %s but with smaller size already exist", volumeID))
-		}
-	} else {
-		if err = s3.createBucket(volumeID); err != nil {
-			return nil, fmt.Errorf("failed to create volume %s: %v", volumeID, err)
-		}
-		if err = s3.createPrefix(volumeID, fsPrefix); err != nil {
-			return nil, fmt.Errorf("failed to create prefix %s: %v", fsPrefix, err)
-		}
-	}
-	b := &bucket{
-		Name:          volumeID,
-		Mounter:       mounter,
-		CapacityBytes: capacityBytes,
-		FSPath:        fsPrefix,
-	}
-	if err := s3.setBucket(b); err != nil {
-		return nil, fmt.Errorf("Error setting bucket metadata: %v", err)
-	}
 
 	glog.V(4).Infof("create volume %s", volumeID)
 	s3Vol := s3Volume{}
@@ -107,6 +67,7 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}, nil
 }
 
+// Share mounter not need delete bucket. Just mount.
 func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
 	volumeID := req.GetVolumeId()
 
@@ -127,7 +88,7 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	}
 	exists, err := s3.bucketExists(volumeID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bucketExists check error: %s", err)
 	}
 	if exists {
 		if err := s3.removeBucket(volumeID); err != nil {
@@ -155,9 +116,18 @@ func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize S3 client: %s", err)
 	}
-	exists, err := s3.bucketExists(req.GetVolumeId())
+
+	volumeID := req.GetVolumeId()
+	bucketName := volumeID
+
+	if len(req.GetVolumeContext()["bucket"]) != 0 {
+		bucketName = req.GetVolumeContext()["bucket"]
+	}
+
+	exists, err := s3.bucketExists(bucketName)
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bucketExists check error: %s", err)
 	}
 	if !exists {
 		// return an error if the volume requested does not exist

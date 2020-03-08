@@ -80,9 +80,28 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize S3 client: %s", err)
 	}
-	b, err := s3.getBucket(volumeID)
+
+	bucketName := volumeID
+
+	if len(req.GetVolumeContext()["bucket"]) != 0 {
+		bucketName = req.GetVolumeContext()["bucket"]
+	}
+
+	exists, err := s3.bucketExists(bucketName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to check if bucket %s exists: %v", bucketName, err)
+	}
+	if !exists {
+		if err = s3.createBucket(bucketName); err != nil {
+			return nil, fmt.Errorf("failed to create volume %s: %v", bucketName, err)
+		}
+	}
+
+	b := &bucket{
+		Name:          bucketName,
+		Mounter:       req.GetVolumeContext()["mounter"],
+		CapacityBytes: 0,
+		FSPath:        fsPrefix,
 	}
 
 	mounter, err := newMounter(b, s3.cfg)
@@ -146,16 +165,35 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize S3 client: %s", err)
 	}
-	b, err := s3.getBucket(volumeID)
-	if err != nil {
-		return nil, err
+
+	bucketName := volumeID
+
+	if len(req.GetVolumeContext()["bucket"]) != 0 {
+		bucketName = req.GetVolumeContext()["bucket"]
 	}
+	exists, err := s3.bucketExists(bucketName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if bucket %s exists: %v", bucketName, err)
+	}
+	if !exists {
+		if err = s3.createBucket(bucketName); err != nil {
+			return nil, fmt.Errorf("failed to create volume %s: %v", bucketName, err)
+		}
+	}
+
+	b := &bucket{
+		Name:          bucketName,
+		Mounter:       req.GetVolumeContext()["mounter"],
+		CapacityBytes: 0,
+		FSPath:        fsPrefix,
+	}
+
 	mounter, err := newMounter(b, s3.cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Mount specific bucket error: %s", err)
 	}
 	if err := mounter.Stage(stagingTargetPath); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stagingTargetPath error: %s", err)
 	}
 
 	return &csi.NodeStageVolumeResponse{}, nil

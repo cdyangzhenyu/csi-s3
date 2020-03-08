@@ -1,0 +1,4 @@
+FROM aiven86/csi-s3:v1.1.1
+
+COPY ./_output/s3driver /s3driver
+ENTRYPOINT ["/s3driver"]
