@@ -4,7 +4,7 @@
 /_output
 
 # Go test binaries
-*.test
+# *.test
 
 # Godeps or dep workspace
 /Godeps/_workspace
